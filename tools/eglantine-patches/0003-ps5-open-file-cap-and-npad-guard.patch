@@ -6,7 +6,7 @@ index 5b5b54017c5b3907601c38e76c53f11f26d66722..7b29fc85cd7af858756e0f0fb5e6009e
          return static_cast<size_t>(std::max<rlim_t>(rl.rlim_cur, 576) - 512);
      }();
  #endif
-+#ifdef PS5_NATIVE
++#if defined(PS5_NATIVE) || defined(__PROSPERO__)
 +    // The console refuses opens well before the RLIMIT_NOFILE it reports: a loose RomFS of
 +    // tens of thousands of files hit "Too many open files" with the 8192 cap.
 +    return (std::min)(size_t{256}, limit);
