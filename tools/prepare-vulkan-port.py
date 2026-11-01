@@ -1101,7 +1101,11 @@ shader_costs = [
      '            const auto& h = graphics_key.unique_hashes;\n'
      '            char text[256];\n'
      '            std::snprintf(text, sizeof(text), "G%zu p=%p new=%d va=%llx vb=%llx tc=%llx te=%llx gs=%llx fs=%llx",\n'
-     '                          traced.size(), (const void*)current_pipeline, int(is_new), (unsigned long long)h[0], (unsigned long long)h[1],\n'
+     '                          traced.size(), (const void*)current_pipeline, ' +
+     # Cores that look the pipeline up without try_emplace (PokeDinner) have no is_new here.
+     ('int(is_new)' if 'const auto [pair, is_new]{graphics_cache.try_emplace(graphics_key)};'
+      in (source / 'src/video_core/renderer_vulkan/vk_pipeline_cache.cpp').read_text() else '-1') +
+     ', (unsigned long long)h[0], (unsigned long long)h[1],\n'
      '                          (unsigned long long)h[2], (unsigned long long)h[3], (unsigned long long)h[4],\n'
      '                          (unsigned long long)h[5]);\n'
      '            ::Eden::Report("pipeline", text);\n'
