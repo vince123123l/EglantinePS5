@@ -182,7 +182,17 @@ GraphicsPipeline* prepared_pipeline = nullptr;
 
 template <typename Func>
 void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {'''),
-    ('    std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};\n    // update engine as channel may be different.',
+    (('    std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};\n    // update engine as channel may be different.'
+      if '    std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};\n    // update engine as channel may be different.'
+      in (source / 'src/video_core/renderer_vulkan/vk_rasterizer.cpp').read_text()
+      # Cores with PokeDinner's Donkey Kong terrain fix between the lock and the engine update.
+      else '    // update engine as channel may be different.'),
+     '''    prepared_pipeline = pipeline;
+    SCOPE_EXIT {
+        prepared_pipeline = nullptr;
+    };
+    // update engine as channel may be different.''' if '    std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};\n    // update engine as channel may be different.'
+      not in (source / 'src/video_core/renderer_vulkan/vk_rasterizer.cpp').read_text() else
      '''    std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
     prepared_pipeline = pipeline;
     SCOPE_EXIT {
@@ -513,7 +523,12 @@ adapt('src/video_core/vulkan_common/vulkan_memory_allocator.cpp', 'vulkan_memory
 """),
     ('    vk::Check(vmaCreateBuffer(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info));\n',
      refused('vmaCreateBuffer(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info)',
-             'buffer of %llu bytes, usage 0x%x', BUFFER_VALUES)),
+             'buffer of %llu bytes, usage 0x%x', BUFFER_VALUES))
+    if '    vk::Check(vmaCreateBuffer(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info));\n'
+    in (source / 'src/video_core/vulkan_common/vulkan_memory_allocator.cpp').read_text() else
+    # Cores (PokeDinner) that already place a refused buffer in host memory keep their own retry.
+    ('    vk::Check(result);\n    vmaGetAllocationMemoryProperties(allocator, allocation, &property_flags);\n',
+     '    vk::Check(result);\n    vmaGetAllocationMemoryProperties(allocator, allocation, &property_flags);\n'),
     ('    vk::Check(vmaCreateBufferWithAlignment(allocator, &ci, &alloc_ci, min_alignment, &handle,\n'
      '                                           &allocation, &alloc_info));\n',
      refused('vmaCreateBufferWithAlignment(allocator, &ci, &alloc_ci, min_alignment, &handle,\n'
