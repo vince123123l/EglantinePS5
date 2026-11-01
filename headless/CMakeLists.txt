@@ -85,6 +85,14 @@ get_target_property(common_sources common SOURCES)
 list(REMOVE_ITEM common_sources host_memory.cpp sparse_large_vector.cpp)
 set_property(TARGET common PROPERTY SOURCES "${common_sources}")
 target_sources(common PRIVATE "${PORT_ROOT}/src/host_memory.cpp" "${PORT_ROOT}/src/memory_pages.cpp")
+# Cores whose HostMemory tracks which guest pages may hold data (PokeDinner) call these from the
+# kernel. The guest memory service (src/guest_memory_service.inc) keeps that state itself.
+file(READ "${PROJECT_SOURCE_DIR}/src/common/host_memory.h" host_memory_header)
+string(FIND "${host_memory_header}" "void ForgetContents();" host_memory_contents_at)
+if(NOT host_memory_contents_at LESS 0)
+    write_derived("${PORT_BUILD_DIR}/host_memory_contents.cpp" "#include \"common/host_memory.h\"\n\nnamespace Common {\n\nvoid HostMemory::MarkUsed(size_t, size_t) {}\nvoid HostMemory::MarkDirty(size_t, size_t) {}\nvoid HostMemory::ForgetContents() {}\n\n} // namespace Common\n")
+    target_sources(common PRIVATE "${PORT_BUILD_DIR}/host_memory_contents.cpp")
+endif()
 
 # Eden's large tables (the guest page table, the GPU's address tables) stay sparse on the PS5:
 # their vector reserves its range with AllocateSparsePages and announces a first write to
@@ -271,7 +279,9 @@ endif()
 file(READ "${PROJECT_SOURCE_DIR}/src/dynarmic/src/dynarmic/backend/x64/emit_x64.cpp" emitter)
 set(patch_lookup "    const PatchInformation& patch_info = patch_information[target_desc];")
 string(FIND "${emitter}" "${patch_lookup}" patch_lookup_offset)
-if(patch_lookup_offset LESS 0)
+# Cores whose Patch() already returns for an absent target (PokeDinner) need nothing here.
+string(FIND "${emitter}" "    const auto it = patch_information.find(target_desc);\n    if (it == patch_information.end()) {\n        return;" patch_lookup_done)
+if(patch_lookup_offset LESS 0 AND patch_lookup_done LESS 0)
     message(FATAL_ERROR "Pinned JIT patch lookup changed")
 endif()
 string(REPLACE "${patch_lookup}"
@@ -1788,6 +1798,10 @@ string(REPLACE "${group_site}"
 # where the slot still shows the zero block is left alone, and pages the guest's kernel frees
 # give whole slots back.
 set(optimized_fill_site "            std::memset(ptr + offset * PageSize, fill_pattern, PageSize);")
+# Cores that clear through HostMemory here (PokeDinner) go back to upstream's fill first.
+string(REPLACE "            device_memory.buffer.ClearBackingRegion(\n                GetInteger(m_heap.GetAddress()) + offset * PageSize - Core::DramMemoryMap::Base,\n                PageSize, fill_pattern);"
+    "            auto* ptr = device_memory.GetPointer<u8>(m_heap.GetAddress());\n${optimized_fill_site}"
+    pool_source "${pool_source}")
 string(FIND "${pool_source}" "${optimized_fill_site}" optimized_fill_at)
 if(optimized_fill_at LESS 0)
     message(FATAL_ERROR "Pinned optimized allocation fill changed; review the guest memory service.")
