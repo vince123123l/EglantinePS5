@@ -1,0 +1,33 @@
+diff --git a/src/core/file_sys/vfs/vfs_real.cpp b/src/core/file_sys/vfs/vfs_real.cpp
+index 5b5b54017c5b3907601c38e76c53f11f26d66722..7b29fc85cd7af858756e0f0fb5e6009eb5bd4a58 100644
+--- a/src/core/file_sys/vfs/vfs_real.cpp
++++ b/src/core/file_sys/vfs/vfs_real.cpp
+@@ -55,7 +55,13 @@ size_t MaxOpenFiles() {
+         return static_cast<size_t>(std::max<rlim_t>(rl.rlim_cur, 576) - 512);
+     }();
+ #endif
++#ifdef PS5_NATIVE
++    // The console refuses opens well before the RLIMIT_NOFILE it reports: a loose RomFS of
++    // tens of thousands of files hit "Too many open files" with the 8192 cap.
++    return (std::min)(size_t{256}, limit);
++#else
+     return (std::min)(size_t{8192}, limit);
++#endif
+ }
+ 
+ bool IsWithinRoot(std::string_view root, std::string_view full_path) {
+diff --git a/src/hid_core/resources/npad/npad.cpp b/src/hid_core/resources/npad/npad.cpp
+index 2b04e2c670108495179b624a20e95f7a2a6d16d9..ce330b799ee0aa4f4931c7349e7d1b42a59a2755 100644
+--- a/src/hid_core/resources/npad/npad.cpp
++++ b/src/hid_core/resources/npad/npad.cpp
+@@ -144,6 +144,10 @@ void NPad::FreeAppletResourceId(u64 aruid) {
+ }
+ 
+ void NPad::ControllerUpdate(Kernel::KernelCore& kernel, Core::HID::ControllerTriggerType type, std::size_t controller_idx) {
++    // Input can arrive while a restarted game's HID service has no applet resource yet.
++    if (applet_resource_holder.applet_resource == nullptr) {
++        return;
++    }
+     if (type == Core::HID::ControllerTriggerType::All) {
+         ControllerUpdate(kernel, Core::HID::ControllerTriggerType::Connected, controller_idx);
+         ControllerUpdate(kernel, Core::HID::ControllerTriggerType::Battery, controller_idx);
