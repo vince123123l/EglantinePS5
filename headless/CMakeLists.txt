@@ -476,6 +476,9 @@ string(REPLACE "${mark_test}" [=[        if (*ctx.conf.page_table_marked_bit == 
     endforeach()
     string(REPLACE "fastmem_patch_info.emplace(" "if (fastmem_marker) fastmem_patch_info.emplace("
         memory_exclusive "${memory_exclusive}")
+    # The same guard on cores that record fastmem patches through AddFastmemPatch (PokeDinner).
+    string(REPLACE "AddFastmemPatch(location" "if (fastmem_marker) AddFastmemPatch(location"
+        memory_exclusive "${memory_exclusive}")
     set(memory_source "${memory_prefix}${memory_exclusive}")
     include("${EDEN_PORT_DIR}/scalar-memory.cmake")
     if(EDEN_A32_FASTMEM)
