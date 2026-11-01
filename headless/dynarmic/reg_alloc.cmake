@@ -33,6 +33,15 @@ macro(eden_reg_alloc_sources)
     set(eden_ra_members [==[    size_t reserved_stack_space = 0;
 };
 ]==])
+    # Cores that already skip released locations here (PokeDinner) go back to upstream's loop,
+    # which the tracking below replaces.
+    string(REPLACE [==[    inline void EndOfAllocScope() noexcept {
+        // After every IR instruction: skip the locations it left alone.
+        for (auto& iter : hostloc_info)
+            if (!iter.IsReleased())
+                iter.ReleaseAll();
+    }
+]==] "${eden_ra_scope}" eden_ra_header "${eden_ra_header}")
     foreach(anchor eden_ra_includes eden_ra_scope eden_ra_locinfo eden_ra_members)
         eden_reg_alloc_require("${eden_ra_header}" "${${anchor}}" "reg_alloc.h ${anchor}")
     endforeach()
