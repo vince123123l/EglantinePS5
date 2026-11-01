@@ -265,3 +265,12 @@ endif()
 string(REPLACE "${checked_select}"
     "${checked_select}\nconstexpr bool checked_fastmem = std::is_same_v<AxxEmitContext, A32EmitContext>;\n"
     memory_source "${memory_source}")
+# Cores that keep their fastmem patches in a sorted table filled by AddFastmemPatch (PokeDinner):
+# the patches this port adds go through it too.
+string(FIND "${memory_source}" "::AddFastmemPatch(CodePtr location" eden_add_fastmem_patch_at)
+if(NOT eden_add_fastmem_patch_at LESS 0)
+    string(REGEX REPLACE
+        "fastmem_patch_info\\.emplace\\(\n +std::bit_cast<u64>\\(location\\),\n +FastmemPatchInfo{\n +std::bit_cast<u64>\\(code\\.getCurr\\(\\)\\),\n +std::bit_cast<u64>\\(([A-Za-z_]+)\\),\n +\\*fastmem_marker,\n +([A-Za-z_.]+),\n +}\\);"
+        "AddFastmemPatch(location, code.getCurr(), std::bit_cast<void (*)()>(\\1), *fastmem_marker, \\2);"
+        memory_source "${memory_source}")
+endif()
