@@ -58,6 +58,8 @@ jobs:
         shell: bash
     env:
       CCACHE_MAXSIZE: 4G
+      # build-pokedinner: the source checks are written against Eglantine's core.
+      EDEN_SKIP_SOURCE_CHECKS: '1'
     steps:
       # SDKs preinstalled on the runner that this build does not use: the build (Eden, Mesa,
       # FFmpeg and their caches) needs the disk space.
