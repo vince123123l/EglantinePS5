@@ -194,7 +194,8 @@ uint64_t eden_game_title_id(const char* rom_path) {
     if (const std::string_view named{rom_path}; named.ends_with("/exefs/main")) {
         const std::string npdm = std::string{named.substr(0, named.size() - 4)} + "main.npdm";
         std::unique_ptr<FILE, int (*)(FILE*)> file(std::fopen(npdm.c_str(), "rb"), std::fclose);
-        unsigned char header[0x400]{};
+        // The ACI0 block can sit past the first 0x400 bytes (Switch 2 games), so read the whole file.
+        unsigned char header[0x4000]{};
         const std::size_t size = file ? std::fread(header, 1, sizeof(header), file.get()) : 0;
         if (size < 0x80 || std::memcmp(header, "META", 4) != 0) return 0;
         std::uint32_t aci = 0;
