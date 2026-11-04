@@ -171,6 +171,14 @@ include("${EDEN_PORT_DIR}/jit-alias.cmake")
         "#include \"dynarmic/backend/x64/block_of_code.h\"\n#include \"${EDEN_PORT_DIR}/jit-allocator.h\"" code_source "${code_source}")
     string(REPLACE "        , nullptr)\n    , constant_pool"
         "        , EdenJitAllocator())\n    , constant_pool" code_source "${code_source}")
+    # Newer cores (PokeDinner 216b5034c) pass CodeAllocator(), a Windows reserving allocator that
+    # is nullptr elsewhere: the PS5 allocator takes its place as it took nullptr's.
+    string(REPLACE "        , CodeAllocator())\n    , constant_pool"
+        "        , EdenJitAllocator())\n    , constant_pool" code_source "${code_source}")
+    string(FIND "${code_source}" "EdenJitAllocator())" jit_allocator_at)
+    if(jit_allocator_at LESS 0)
+        message(FATAL_ERROR "Pinned JIT code allocator changed")
+    endif()
 if(PS5_NATIVE)
     string(PREPEND code_source "#define EDEN_JIT_ALIAS_NATIVE 1\n")
     string(REPLACE "    GenRunCode(rcp);"

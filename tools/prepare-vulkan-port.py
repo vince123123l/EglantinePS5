@@ -132,15 +132,15 @@ void RasterizerVulkan::DispatchCompute() {"""),
     }()};
     ::Eden::Performance::Mark(::Eden::Performance::draw_pipeline, phase);
 '''),
-    ('''    pipeline->SetEngine(maxwell3d, gpu_memory);
-    if (Profile::Scope scope{Profile::Zone::Configure}; !pipeline->Configure(is_indexed)) {
+    # Newer cores (PokeDinner 216b5034c) set the vertex repack layout between SetEngine and
+    # Configure: the lock-wait mark goes just before Configure.
+    ('''    if (Profile::Scope scope{Profile::Zone::Configure}; !pipeline->Configure(is_indexed)) {
         report_failure("configure failed");
         return;
     }
 ''',
-     '''    pipeline->SetEngine(maxwell3d, gpu_memory);
-    // Waiting for both cache mutexes. SetEngine between them and here is two pointer assignments,
-    // and the hold itself carries on through what follows: the phases below measure it.
+     '''    // Waiting for both cache mutexes. SetEngine between them and here is two pointer assignments
+    // (and, on newer cores, the vertex repack layout); the hold carries on through what follows.
     ::Eden::Performance::Mark(::Eden::Performance::draw_lock_wait, phase);
     if (Profile::Scope scope{Profile::Zone::Configure}; !pipeline->Configure(is_indexed)) {
         report_failure("configure failed");
@@ -527,6 +527,9 @@ adapt('src/video_core/vulkan_common/vulkan_memory_allocator.cpp', 'vulkan_memory
     if '    vk::Check(vmaCreateBuffer(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info));\n'
     in (source / 'src/video_core/vulkan_common/vulkan_memory_allocator.cpp').read_text() else
     # Cores (PokeDinner) that already place a refused buffer in host memory keep their own retry.
+    ('        vk::Check(result);\n', '        vk::Check(result);\n')
+    if '        vk::Check(result);\n    }\n    vmaGetAllocationMemoryProperties(' in
+    (source / 'src/video_core/vulkan_common/vulkan_memory_allocator.cpp').read_text() else
     ('    vk::Check(result);\n    vmaGetAllocationMemoryProperties(allocator, allocation, &property_flags);\n',
      '    vk::Check(result);\n    vmaGetAllocationMemoryProperties(allocator, allocation, &property_flags);\n'),
     ('    vk::Check(vmaCreateBufferWithAlignment(allocator, &ci, &alloc_ci, min_alignment, &handle,\n'
@@ -907,7 +910,8 @@ reclaimed_bytes = reclaimed_bytes.replace('slot_images[image_id]', 'static_cast<
 gc_begin = download_source.index('void TextureCache<P>::RunGarbageCollector() {')
 gc_end = download_source.index('\ntemplate <class P>', gc_begin)
 gc_original = download_source[gc_begin:gc_end]
-gc = gc_original
+gc = gc_original.replace('&aggressive_mode,\n                          &evict_old_costly](ImageId image_id)',
+                         '&aggressive_mode](ImageId image_id)')
 gc_setup = '''    const auto ReclaimedBytes = [&](const ImageBase& image) {
         u64 bytes = 0;
 ''' + reclaimed_bytes + '''        return bytes;
@@ -1169,7 +1173,13 @@ for statement in (
     shader_source = shader_source.replace(statement,
         'auto cfg_cost = Eden::Performance::VulkanTimer(20);\n        ' + statement +
         '\n        cfg_cost.reset();')
+# Development traces only: a core that moved them (PokeDinner 216b5034c) builds without them.
+optional_costs = {'    current_pipeline = pipeline.get();\n    return BuiltPipeline(current_pipeline);\n}',
+                  '}\n\nPipelineCache::~PipelineCache()'}
 for old, new in shader_costs:
+    if shader_source.count(old) == 0 and old in optional_costs:
+        print(f'prepare-vulkan-port: diagnostic anchor absent, skipped: {old[:50]!r}')
+        continue
     if shader_source.count(old) != 1:
         raise RuntimeError(f'Shader pipeline anchor changed: {old[:60]}')
     shader_source = shader_source.replace(old, new)
