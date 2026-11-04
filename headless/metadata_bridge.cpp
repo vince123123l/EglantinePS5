@@ -44,10 +44,13 @@
 #include "core/file_sys/registered_cache.h"
 #include "core/file_sys/romfs.h"
 #include "core/file_sys/submission_package.h"
+#include "core/file_sys/nup_container.h"
 #include "core/file_sys/vfs/vfs_real.h"
+#include "core/file_sys/vfs/vfs_vector.h"
 #include "core/hle/service/ns/language.h"
 #include "core/hle/service/set/settings_types.h"
 #include "core/loader/loader.h"
+#include "core/loader/nup.h"
 
 namespace {
 constexpr std::array<const char*, 18> language_names{
@@ -57,7 +60,21 @@ constexpr std::array<const char*, 18> language_names{
     "BrazilianPortuguese", "Polish", "Thai",
 };
 
+// A NUP (NX Package) keeps its control data as metadata, not as a control NCA: it is given here as a
+// control RomFS holds it (control.nacp and the icon), so that the NSP and XCI readers below apply.
+FileSys::VirtualDir OpenNupControl(const FileSys::VirtualFile& file) {
+    Loader::AppLoader_NUP loader(file);
+    FileSys::NACP nacp;
+    if (loader.ReadControlData(nacp) != Loader::ResultStatus::Success) return {};
+    std::vector<FileSys::VirtualFile> files{
+        std::make_shared<FileSys::VectorVfsFile>(nacp.GetRawBytes(), "control.nacp")};
+    if (std::vector<u8> icon; loader.ReadIcon(icon) == Loader::ResultStatus::Success && !icon.empty())
+        files.push_back(std::make_shared<FileSys::VectorVfsFile>(std::move(icon), "icon_AmericanEnglish.dat"));
+    return std::make_shared<FileSys::VectorVfsDirectory>(std::move(files));
+}
+
 FileSys::VirtualDir OpenControlRomFs(const FileSys::VirtualFile& file, bool xci) {
+    if (FileSys::NupContainer::IsNupFile(file)) return OpenNupControl(file);
     std::shared_ptr<FileSys::NCA> control;
     if (xci) {
         FileSys::XCI image(file);
@@ -211,6 +228,11 @@ uint64_t eden_game_title_id(const char* rom_path) {
     std::string path = rom_path;
     std::transform(path.begin(), path.end(), path.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (path.ends_with(".nup")) {
+        Loader::AppLoader_NUP loader(file);
+        u64 title = 0;
+        return loader.ReadProgramId(title) == Loader::ResultStatus::Success ? title : 0;
+    }
     if (path.ends_with(".xci")) {
         FileSys::XCI image(file);
         return image.GetStatus() == Loader::ResultStatus::Success ? image.GetProgramTitleID() : 0;
