@@ -93,6 +93,13 @@ if(NOT host_memory_contents_at LESS 0)
     write_derived("${PORT_BUILD_DIR}/host_memory_contents.cpp" "#include \"common/host_memory.h\"\n\nnamespace Common {\n\nvoid HostMemory::MarkUsed(size_t, size_t) {}\nvoid HostMemory::MarkDirty(size_t, size_t) {}\nvoid HostMemory::ForgetContents() {}\n\n} // namespace Common\n")
     target_sources(common PRIVATE "${PORT_BUILD_DIR}/host_memory_contents.cpp")
 endif()
+# Newer cores (PokeDinner 216b5034c) hint pages written once as cold (madvise on Linux and
+# Windows). Only a hint: the PS5 keeps its guest memory as it is.
+string(FIND "${host_memory_header}" "void HintCold(size_t physical_offset" host_memory_cold_at)
+if(NOT host_memory_cold_at LESS 0)
+    write_derived("${PORT_BUILD_DIR}/host_memory_cold.cpp" "#include \"common/host_memory.h\"\n\nnamespace Common {\n\nvoid HostMemory::HintCold(size_t, size_t, std::optional<size_t>) const {}\n\n} // namespace Common\n")
+    target_sources(common PRIVATE "${PORT_BUILD_DIR}/host_memory_cold.cpp")
+endif()
 
 # Eden's large tables (the guest page table, the GPU's address tables) stay sparse on the PS5:
 # their vector reserves its range with AllocateSparsePages and announces a first write to
