@@ -14,6 +14,7 @@
 #include "common/common_funcs.h"
 #include "common/common_types.h"
 #include "common/logging.h"
+#include <fmt/format.h>
 #include "common/scratch_buffer.h"
 #include "core/guest_memory.h"
 #include "core/hle/kernel/k_auto_object.h"
@@ -25,9 +26,29 @@
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/service/hle_ipc.h"
 #include "core/hle/service/ipc_helpers.h"
+#include "core/hle/service/service.h"
 #include "core/memory.h"
 
 namespace Service {
+
+namespace {
+// Diagnostics for malformed domain requests (Zelda OoT on Switch 2 after the intro).
+std::string_view HandlerName(const SessionRequestManager& manager) {
+    if (!manager.HasSessionHandler()) {
+        return "<none>";
+    }
+    const auto* framework = dynamic_cast<const ServiceFrameworkBase*>(&manager.SessionHandler());
+    return framework ? framework->GetServiceName() : std::string_view{"<non-framework>"};
+}
+
+std::string DumpWords(const u32_le* words, std::size_t count) {
+    std::ostringstream out;
+    for (std::size_t i = 0; i < count; ++i) {
+        out << fmt::format("{}{:08X}", i ? " " : "", static_cast<u32>(words[i]));
+    }
+    return out.str();
+}
+} // namespace
 
 SessionRequestHandler::SessionRequestHandler(Kernel::KernelCore& kernel_, const char* service_name_)
     : kernel{kernel_} {}
@@ -46,7 +67,9 @@ bool SessionRequestManager::HasSessionRequestHandler(const HLERequestContext& co
         const auto object_id = message_header.object_id;
 
         if (object_id > DomainHandlerCount()) {
-            LOG_CRITICAL(IPC, "object_id {} is too big!", object_id);
+            LOG_CRITICAL(IPC, "object_id {} is too big! service={} domain_handlers={} cmdbuf={}",
+                         object_id, HandlerName(*this), DomainHandlerCount(),
+                         DumpWords(const_cast<HLERequestContext&>(context).CommandBuffer(), 24));
             return false;
         }
         return !DomainHandler(object_id - 1).expired();
@@ -204,7 +227,29 @@ void HLERequestContext::ParseCommandBuffer(u32_le* src_cmdbuf, bool incoming) {
             // If this is an incoming message, only CommandType "Request" has a domain header
             // All outgoing domain messages have the domain header, if only incoming has it
             if (incoming || domain_message_header) {
+                const u32 domain_offset = rp.GetCurrentOffset();
                 domain_message_header = rp.PopRaw<IPC::DomainMessageHeader>();
+                // A request whose domain header carries the SFCI magic as its object id is a
+                // plain CMIF request sent to a session HLE treats as a domain (seen in Zelda OoT
+                // on Switch 2). Parse it as a plain request: find SFCI and drop the header.
+                constexpr u32 sfci = Common::MakeMagic('S', 'F', 'C', 'I');
+                if (incoming && domain_message_header->object_id == sfci) {
+                    u32 found = domain_offset;
+                    for (u32 i = 0; i < 4; ++i) {
+                        if (src_cmdbuf[domain_offset + i] == sfci) {
+                            found = domain_offset + i;
+                            break;
+                        }
+                    }
+                    LOG_WARNING(IPC,
+                                "plain request on a domain session: service={} type={} SFCI at "
+                                "+{} words, parsing it without a domain header; cmdbuf={}",
+                                HandlerName(*GetManager()),
+                                static_cast<u32>(command_header->type.Value()),
+                                found - domain_offset, DumpWords(src_cmdbuf, 24));
+                    rp.SetCurrentOffset(found);
+                    domain_message_header.reset();
+                }
             } else {
                 if (GetManager()->IsDomain()) {
                     LOG_WARNING(IPC, "Domain request has no DomainMessageHeader!");
