@@ -35,6 +35,7 @@ public:
             {10200, &PlayReport::RequestImmediateTransmission, "RequestImmediateTransmission"},
             {10300, &PlayReport::GetTransmissionStatus, "GetTransmissionStatus"},
             {10400, &PlayReport::GetSystemSessionId, "GetSystemSessionId"},
+            {10500, &PlayReport::Unknown10500, "Unknown10500"},
             {20100, &PlayReport::SaveSystemReportOld, "SaveSystemReport"},
             {20101, &PlayReport::SaveSystemReportWithUserOld, "SaveSystemReportWithUser"},
             {20102, &PlayReport::SaveSystemReport, "SaveSystemReport"},
@@ -120,6 +121,16 @@ private:
         IPC::ResponseBuilder rb{ctx, 3};
         rb.Push(ResultSuccess);
         rb.Push(status);
+    }
+
+    // Newer firmware play-report command (seen in The Legend of Zelda: Ocarina of Time on
+    // Switch 2). Its layout is unknown; play reports are telemetry, so accept and drop it.
+    void Unknown10500(HLERequestContext& ctx) {
+        const auto data_a = ctx.CanReadBuffer(0) ? ctx.GetReadBufferSize(0) : 0;
+        LOG_WARNING(Service_PREPO, "(STUBBED) called, buffer_size={}", data_a);
+
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
     }
 
     void GetSystemSessionId(HLERequestContext& ctx) {
