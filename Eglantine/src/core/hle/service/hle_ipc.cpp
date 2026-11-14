@@ -26,7 +26,6 @@
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/service/hle_ipc.h"
 #include "core/hle/service/ipc_helpers.h"
-#include "core/hle/service/service.h"
 #include "core/memory.h"
 
 namespace Service {
@@ -37,8 +36,7 @@ std::string_view HandlerName(const SessionRequestManager& manager) {
     if (!manager.HasSessionHandler()) {
         return "<none>";
     }
-    const auto* framework = dynamic_cast<const ServiceFrameworkBase*>(&manager.SessionHandler());
-    return framework ? framework->GetServiceName() : std::string_view{"<non-framework>"};
+    return manager.SessionHandler().GetHandlerName();
 }
 
 std::string DumpWords(const u32_le* words, std::size_t count) {
@@ -51,7 +49,7 @@ std::string DumpWords(const u32_le* words, std::size_t count) {
 } // namespace
 
 SessionRequestHandler::SessionRequestHandler(Kernel::KernelCore& kernel_, const char* service_name_)
-    : kernel{kernel_} {}
+    : kernel{kernel_}, handler_name{service_name_} {}
 
 SessionRequestHandler::~SessionRequestHandler() = default;
 
