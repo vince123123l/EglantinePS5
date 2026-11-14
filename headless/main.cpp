@@ -1782,6 +1782,37 @@ int main(int argc, char** argv) {
 #endif
                 const auto session_start = std::chrono::steady_clock::now();
                 [[maybe_unused]] double session_seconds = 0;  // guest-fault relaunch (PS5 only)
+#ifdef PS5_NATIVE
+                // Zelda: Ocarina of Time (Switch 2) stops presenting in its first 3D scene with no
+                // error. From 200 s into the session, log what every guest thread is doing and its
+                // call stack, every 20 s, 6 times (diagnostic only; the list is read unlocked).
+                std::jthread hang_dump;
+                if (system.GetApplicationProcessProgramID() == 0x0400486024DEC000ULL)
+                    hang_dump = std::jthread([&system, session_start](std::stop_token stop) {
+                        int dumps = 0;
+                        while (!stop.stop_requested() && dumps < 6) {
+                            std::this_thread::sleep_for(std::chrono::seconds(1));
+                            const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                                std::chrono::steady_clock::now() - session_start).count();
+                            if (elapsed < 200 + dumps * 20) continue;
+                            ++dumps;
+                            auto* const process = system.ApplicationProcess();
+                            if (process == nullptr) continue;
+                            for (const auto& thread : process->GetThreadList()) {
+                                const auto& ctx = thread.GetContext();
+                                LOG_WARNING(Core, "HANG dump {} at {} s: thread {} '{}' {} prio={} core={} pc={:#x} lr={:#x} sp={:#x}",
+                                            dumps, elapsed, thread.GetThreadId(),
+                                            Core::GetThreadName(&thread).value_or(""),
+                                            Core::GetThreadState(&thread), thread.GetPriority(),
+                                            thread.GetActiveCore(), ctx.pc, ctx.lr, ctx.sp);
+                                const auto frames = Core::GetBacktrace(&thread);
+                                for (std::size_t i = 0; i < std::min<std::size_t>(frames.size(), 12); ++i)
+                                    LOG_WARNING(Core, "HANG dump {}   #{} {} {:#x} {}", dumps, i,
+                                                frames[i].module, frames[i].offset, frames[i].name);
+                            }
+                        }
+                    });
+#endif
                 std::jthread input_worker;
                 if (pad) input_worker = std::jthread([&](std::stop_token stop) {
 #ifdef EDEN_DEV_PROFILE
