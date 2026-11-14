@@ -115,6 +115,7 @@ extern "C" std::int64_t sceKernelGetDirectMemorySize();
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-private-field"
 #include "core/hle/kernel/k_process.h"  // every build: the game's code address (jit_list.h)
+#include "core/hle/service/hle_ipc.h"  // hang diagnostic: Service::DumpInflightRequests
 #ifdef PS5_NATIVE
 #include "core/hle/kernel/k_thread.h"
 #endif
@@ -1798,8 +1799,20 @@ int main(int argc, char** argv) {
                             ++dumps;
                             auto* const process = system.ApplicationProcess();
                             if (process == nullptr) continue;
+                            Service::DumpInflightRequests(dumps);
                             for (const auto& thread : process->GetThreadList()) {
                                 const auto& ctx = thread.GetContext();
+                                // A thread waiting in svcSendSyncRequest: its request is in its TLS.
+                                if (thread.GetState() == Kernel::ThreadState::Waiting &&
+                                    (ctx.pc & 0xfff) == 0x524) {
+                                    auto& memory = system.ApplicationMemory();
+                                    const u64 tls = GetInteger(thread.GetTlsAddress());
+                                    LOG_WARNING(Core, "HANG dump {}   ipc tls {:#x}: {:08x} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x}",
+                                                dumps, tls, memory.Read32(tls), memory.Read32(tls + 4), memory.Read32(tls + 8),
+                                                memory.Read32(tls + 12), memory.Read32(tls + 16), memory.Read32(tls + 20),
+                                                memory.Read32(tls + 24), memory.Read32(tls + 28), memory.Read32(tls + 32),
+                                                memory.Read32(tls + 36), memory.Read32(tls + 40), memory.Read32(tls + 44));
+                                }
                                 LOG_WARNING(Core, "HANG dump {} at {} s: thread {} '{}' {} prio={} core={} pc={:#x} lr={:#x} sp={:#x}",
                                             dumps, elapsed, thread.GetThreadId(),
                                             Core::GetThreadName(&thread).value_or(""),
