@@ -808,6 +808,27 @@ void SyncProbe(Scheduler& scheduler, const char* kind, const void* pipeline) {
 }
 } // namespace
 
+// EDEN_NX2_SKIP_TESS=1: drop draws that use tessellation shaders (debug aid: Zelda: Ocarina of
+// Time's first 3D scene leaves the PS5 GPU on a submission that never completes right after its
+// first tessellation pipelines are used).
+static bool SkipTessellationDraw(const Maxwell& regs) {
+    static const bool skip = [] {
+        const char* value = std::getenv("EDEN_NX2_SKIP_TESS");
+        return value != nullptr && value[0] == '1';
+    }();
+    if (!skip || !(regs.IsShaderConfigEnabled(Maxwell::ShaderType::TessellationInit) ||
+                   regs.IsShaderConfigEnabled(Maxwell::ShaderType::Tessellation))) {
+        return false;
+    }
+    static u64 skipped{};
+    if (++skipped <= 8 || skipped % 10000 == 0) {
+        const u64 vs = (u64{regs.pipelines[1].reserved[0] & 0xff} << 32) | regs.pipelines[1].reserved[1];
+        LOG_WARNING(Render_Vulkan, "EDEN_NX2_SKIP_TESS: skipped tessellation draw {} (vs={:#x})",
+                    skipped, vs);
+    }
+    return true;
+}
+
 template <typename Func>
 void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func, bool is_indirect) {
 
@@ -1456,6 +1477,7 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
         }
         return list;
     }();
+    if (SkipTessellationDraw(maxwell3d->regs)) return;
     if (!skip_list.empty()) {
         const auto& regs = maxwell3d->regs;
         const u64 vs = (u64{regs.pipelines[1].reserved[0] & 0xff} << 32) | regs.pipelines[1].reserved[1];
@@ -1588,6 +1610,7 @@ void RasterizerVulkan::DrawIndirect() {
     if (Common::DkbFrameTrace::Enabled()) {
         ++trace_indirect;
     }
+    if (SkipTessellationDraw(maxwell3d->regs)) return;
     buffer_cache.SetDrawIndirect(&params);
     PrepareDraw(params.is_indexed, [this, &params] {
         if (VideoCommon::RenderTrace::SampleFrame(render_trace_frame) && render_trace_draws <= 2048) {
