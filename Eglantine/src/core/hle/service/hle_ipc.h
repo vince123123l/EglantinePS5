@@ -100,6 +100,9 @@ using SessionRequestHandlerFactory = std::function<SessionRequestHandlerPtr()>;
  * treated as a domain. This is managed separately from server sessions, as this state is shared
  * when objects are cloned.
  */
+/// Logs the HLE requests being handled for more than 2 s (hang diagnostic).
+void DumpInflightRequests(int dump);
+
 class SessionRequestManager final {
 public:
     explicit SessionRequestManager(Kernel::KernelCore& kernel,
