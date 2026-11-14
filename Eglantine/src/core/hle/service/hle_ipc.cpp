@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <mutex>
 #include <sstream>
 
 #include <boost/range/algorithm_ext/erase.hpp>
@@ -38,6 +40,17 @@ std::string_view HandlerName(const SessionRequestManager& manager) {
     }
     return manager.SessionHandler().GetHandlerName();
 }
+
+// Requests being handled right now, to find one that never returns (Zelda OoT hang diagnostic).
+struct InflightRequest {
+    const char* service{};
+    u32 command{};
+    bool domain{};
+    std::chrono::steady_clock::time_point start{};
+    bool used{};
+};
+std::mutex inflight_mutex;
+std::array<InflightRequest, 128> inflight_requests{};
 
 std::string DumpWords(const u32_le* words, std::size_t count) {
     std::ostringstream out;
@@ -76,9 +89,41 @@ bool SessionRequestManager::HasSessionRequestHandler(const HLERequestContext& co
     }
 }
 
+void DumpInflightRequests(int dump) {
+    const auto now = std::chrono::steady_clock::now();
+    std::scoped_lock lock{inflight_mutex};
+    for (const auto& request : inflight_requests) {
+        if (!request.used || now - request.start < std::chrono::seconds(2)) continue;
+        LOG_WARNING(IPC, "HANG dump {} in-flight request: service={} command={} domain={} for {} ms",
+                    dump, request.service ? request.service : "<none>", request.command,
+                    request.domain,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(now - request.start).count());
+    }
+}
+
 Result SessionRequestManager::CompleteSyncRequest(Kernel::KServerSession* server_session,
                                                   HLERequestContext& context) {
     Result result = ResultSuccess;
+
+    InflightRequest* slot = nullptr;
+    {
+        std::scoped_lock lock{inflight_mutex};
+        for (auto& request : inflight_requests) {
+            if (request.used) continue;
+            request = {HasSessionHandler() ? SessionHandler().GetHandlerName() : "<none>",
+                       context.GetCommand(), IsDomain(), std::chrono::steady_clock::now(), true};
+            slot = &request;
+            break;
+        }
+    }
+    struct ReleaseSlot {
+        InflightRequest* slot;
+        ~ReleaseSlot() {
+            if (slot == nullptr) return;
+            std::scoped_lock lock{inflight_mutex};
+            slot->used = false;
+        }
+    } release_slot{slot};
 
     // If the session has been converted to a domain, handle the domain request
     if (this->HasSessionRequestHandler(context)) {
