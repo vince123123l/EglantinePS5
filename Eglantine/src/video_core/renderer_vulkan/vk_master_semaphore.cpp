@@ -112,7 +112,8 @@ void MasterSemaphore::Wait(u64 tick) {
         }
     } catch (const vk::Exception& exception) {
         // The throw ends the process; say why first (a device loss reached nothing else here).
-        LOG_CRITICAL(Render_Vulkan, "Waiting for GPU tick {} failed: {}", tick, exception.what());
+        LOG_CRITICAL(Render_Vulkan, "Waiting for GPU tick {} failed: {} (last tick the GPU completed: {})",
+                     tick, exception.what(), gpu_tick.load(std::memory_order_acquire));
         throw;
     }
 
