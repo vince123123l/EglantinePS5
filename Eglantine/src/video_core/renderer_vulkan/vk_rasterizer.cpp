@@ -897,6 +897,22 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func, bool is_in
         return pipeline_cache.CurrentGraphicsPipeline();
     }()};
     ::Eden::Performance::Mark(::Eden::Performance::draw_pipeline, phase);
+    // Hang diagnostic (Zelda: Ocarina of Time): the first use of every graphics pipeline, with the
+    // scheduler tick it lands in. A VK_ERROR_DEVICE_LOST names the tick that never completed; the
+    // vertex shader address can then be dropped with EDEN_NX2_SKIP_VS.
+    if (pipeline != nullptr) {
+        static std::set<const void*> first_uses;
+        if (first_uses.insert(pipeline).second) {
+            const auto& regs = maxwell3d->regs;
+            const u64 vs = (u64{regs.pipelines[1].reserved[0] & 0xff} << 32) | regs.pipelines[1].reserved[1];
+            const u64 ps = (u64{regs.pipelines[5].reserved[0] & 0xff} << 32) | regs.pipelines[5].reserved[1];
+            LOG_WARNING(Render_Vulkan,
+                        "FIRST USE graphics pipeline {} tick={} vs={:#x} ps={:#x} tess={} geometry={} indirect={}",
+                        fmt::ptr(pipeline), scheduler.CurrentTick(), vs, ps,
+                        regs.IsShaderConfigEnabled(Maxwell::ShaderType::Tessellation),
+                        regs.IsShaderConfigEnabled(Maxwell::ShaderType::Geometry), is_indirect);
+        }
+    }
     const bool verify_views = verify_pipeline != nullptr && verify_pipeline == pipeline;
     if (verify_pipeline != nullptr) {
         ++fast_draw_stats.verified;
@@ -2269,6 +2285,13 @@ void RasterizerVulkan::DispatchCompute() {
 
     u64 native_key{};
     ComputePipeline* const pipeline{pipeline_cache.CurrentComputePipeline(native_key)};
+    if (pipeline != nullptr) {
+        static std::set<const void*> first_uses;
+        if (first_uses.insert(pipeline).second) {
+            LOG_WARNING(Render_Vulkan, "FIRST USE compute pipeline {} tick={} key={:#x}",
+                        fmt::ptr(pipeline), scheduler.CurrentTick(), native_key);
+        }
+    }
     if (!pipeline) {
         if (kepler_compute->IsNativeMode()) throw Shader::RuntimeError("Native compute pipeline unavailable");
         return;
