@@ -829,6 +829,43 @@ static bool SkipTessellationDraw(const Maxwell& regs) {
     return true;
 }
 
+// EDEN_NX2_SKIP_SHADER=<hash>[,<hash>...] drops draws whose pipeline has one of those shader
+// hashes; EDEN_NX2_SKIP_COMPUTE=<key>[,<key>...] drops compute dispatches with those pipeline
+// keys (debug aids for GPU hangs: the FIRST USE lines give the values).
+static std::vector<u64> HexListFromEnv(const char* name) {
+    std::vector<u64> list;
+    if (const char* value = std::getenv(name)) {
+        for (char* end = nullptr; *value; value = *end ? end + 1 : end) {
+            list.push_back(std::strtoull(value, &end, 16));
+            if (end == value) break;
+        }
+    }
+    return list;
+}
+
+static bool SkipShaderHashes(const std::array<u64, 6>& hashes) {
+    static const std::vector<u64> skip = HexListFromEnv("EDEN_NX2_SKIP_SHADER");
+    if (skip.empty()) return false;
+    for (const u64 hash : hashes) {
+        if (hash != 0 && std::find(skip.begin(), skip.end(), hash) != skip.end()) {
+            static u64 skipped{};
+            if (++skipped <= 16 || skipped % 10000 == 0)
+                LOG_WARNING(Render_Vulkan, "EDEN_NX2_SKIP_SHADER: skipped draw {} (shader {:#x})", skipped, hash);
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool SkipComputeKey(u64 key) {
+    static const std::vector<u64> skip = HexListFromEnv("EDEN_NX2_SKIP_COMPUTE");
+    if (skip.empty() || std::find(skip.begin(), skip.end(), key) == skip.end()) return false;
+    static u64 skipped{};
+    if (++skipped <= 16 || skipped % 10000 == 0)
+        LOG_WARNING(Render_Vulkan, "EDEN_NX2_SKIP_COMPUTE: skipped dispatch {} (key {:#x})", skipped, key);
+    return true;
+}
+
 template <typename Func>
 void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func, bool is_indirect) {
 
@@ -906,11 +943,18 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func, bool is_in
             const auto& regs = maxwell3d->regs;
             const u64 vs = (u64{regs.pipelines[1].reserved[0] & 0xff} << 32) | regs.pipelines[1].reserved[1];
             const u64 ps = (u64{regs.pipelines[5].reserved[0] & 0xff} << 32) | regs.pipelines[5].reserved[1];
+            const auto& hashes = pipeline->ShaderHashes();
             LOG_WARNING(Render_Vulkan,
-                        "FIRST USE graphics pipeline {} tick={} vs={:#x} ps={:#x} tess={} geometry={} indirect={}",
+                        "FIRST USE graphics pipeline {} tick={} vs={:#x} ps={:#x} tess={} geometry={} indirect={} "
+                        "hashes={:x},{:x},{:x},{:x},{:x},{:x}",
                         fmt::ptr(pipeline), scheduler.CurrentTick(), vs, ps,
                         regs.IsShaderConfigEnabled(Maxwell::ShaderType::Tessellation),
-                        regs.IsShaderConfigEnabled(Maxwell::ShaderType::Geometry), is_indirect);
+                        regs.IsShaderConfigEnabled(Maxwell::ShaderType::Geometry), is_indirect,
+                        hashes[0], hashes[1], hashes[2], hashes[3], hashes[4], hashes[5]);
+        }
+        if (SkipShaderHashes(pipeline->ShaderHashes())) {
+            submitted = true;
+            return;
         }
     }
     const bool verify_views = verify_pipeline != nullptr && verify_pipeline == pipeline;
@@ -2291,6 +2335,7 @@ void RasterizerVulkan::DispatchCompute() {
             LOG_WARNING(Render_Vulkan, "FIRST USE compute pipeline {} tick={} key={:#x}",
                         fmt::ptr(pipeline), scheduler.CurrentTick(), native_key);
         }
+        if (SkipComputeKey(native_key)) return;
     }
     if (!pipeline) {
         if (kepler_compute->IsNativeMode()) throw Shader::RuntimeError("Native compute pipeline unavailable");
