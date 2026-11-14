@@ -1805,6 +1805,27 @@ int main(int argc, char** argv) {
                                             Core::GetThreadName(&thread).value_or(""),
                                             Core::GetThreadState(&thread), thread.GetPriority(),
                                             thread.GetActiveCore(), ctx.pc, ctx.lr, ctx.sp);
+                                // A thread that runs instead of waiting may be spinning: log its
+                                // registers, the code around its pc and what its registers point to.
+                                if (thread.GetState() == Kernel::ThreadState::Runnable) {
+                                    auto& memory = system.ApplicationMemory();
+                                    for (int r = 0; r < 29; r += 4)
+                                        LOG_WARNING(Core, "HANG dump {}   x{}: {:#x} {:#x} {:#x} {:#x}", dumps, r,
+                                                    ctx.r[r], r + 1 < 29 ? ctx.r[r + 1] : ctx.fp,
+                                                    r + 2 < 29 ? ctx.r[r + 2] : ctx.lr, r + 3 < 29 ? ctx.r[r + 3] : ctx.sp);
+                                    for (u64 at = (ctx.pc & ~u64{3}) - 0x80; at < (ctx.pc & ~u64{3}) + 0x40; at += 0x20)
+                                        LOG_WARNING(Core, "HANG dump {}   code {:#x}: {:08x} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x}",
+                                                    dumps, at, memory.Read32(at), memory.Read32(at + 4), memory.Read32(at + 8),
+                                                    memory.Read32(at + 12), memory.Read32(at + 16), memory.Read32(at + 20),
+                                                    memory.Read32(at + 24), memory.Read32(at + 28));
+                                    for (int r = 0; r < 29; ++r) {
+                                        const u64 address = ctx.r[r];
+                                        if (address < 0x80000000ULL || address > 0x7fffffffffULL || (address & 3) != 0) continue;
+                                        LOG_WARNING(Core, "HANG dump {}   [x{}={:#x}]: {:016x} {:016x} {:016x} {:016x}", dumps, r,
+                                                    address, memory.Read64(address), memory.Read64(address + 8),
+                                                    memory.Read64(address + 16), memory.Read64(address + 24));
+                                    }
+                                }
                                 const auto frames = Core::GetBacktrace(&thread);
                                 for (std::size_t i = 0; i < std::min<std::size_t>(frames.size(), 12); ++i)
                                     LOG_WARNING(Core, "HANG dump {}   #{} {} {:#x} {}", dumps, i,
