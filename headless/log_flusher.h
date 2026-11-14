@@ -16,6 +16,8 @@
 #include <mutex>
 #include <thread>
 
+#include "common/logging.h"
+
 namespace Eden {
 class LogFlusher {
 public:
@@ -59,6 +61,10 @@ private:
             }
             std::fflush(stderr);
             std::fflush(stdout);
+            // The Eden log file is only written out on errors otherwise, so a process killed
+            // without one (Zelda: Ocarina of Time after its intro) lost everything since the last
+            // error. Common::Log::Stop() only flushes the backends.
+            Common::Log::Stop();
         }
     }
 
