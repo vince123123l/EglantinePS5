@@ -79,8 +79,16 @@ public:
     virtual Result HandleSyncRequest(Kernel::KServerSession& session,
                                      HLERequestContext& context) = 0;
 
+    /// Name given at construction (the service name for ServiceFramework handlers).
+    [[nodiscard]] const char* GetHandlerName() const noexcept {
+        return handler_name ? handler_name : "<unnamed>";
+    }
+
 protected:
     Kernel::KernelCore& kernel;
+
+private:
+    const char* handler_name{};
 };
 
 using SessionRequestHandlerWeakPtr = std::weak_ptr<SessionRequestHandler>;
