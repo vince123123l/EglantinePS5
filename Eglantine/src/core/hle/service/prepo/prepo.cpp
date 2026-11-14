@@ -19,6 +19,37 @@
 
 namespace Service::PlayReport {
 
+// Object returned by prepo command 10500 on Switch 2 titles (Zelda: Ocarina of Time calls
+// command 0 on it right after the intro). Its real interface is unknown: accept every call.
+class IPlayReportSession final : public ServiceFramework<IPlayReportSession> {
+public:
+    explicit IPlayReportSession(Core::System& system_)
+        : ServiceFramework{system_, "prepo::IPlayReportSession"} {
+        // clang-format off
+        static const FunctionInfo functions[] = {
+            {0, &IPlayReportSession::Accept, "Unknown0"},
+            {1, &IPlayReportSession::Accept, "Unknown1"},
+            {2, &IPlayReportSession::Accept, "Unknown2"},
+            {3, &IPlayReportSession::Accept, "Unknown3"},
+            {4, &IPlayReportSession::Accept, "Unknown4"},
+            {5, &IPlayReportSession::Accept, "Unknown5"},
+            {10, &IPlayReportSession::Accept, "Unknown10"},
+            {100, &IPlayReportSession::Accept, "Unknown100"},
+        };
+        // clang-format on
+        RegisterHandlers(functions);
+    }
+
+private:
+    void Accept(HLERequestContext& ctx) {
+        LOG_WARNING(Service_PREPO, "(STUBBED) session command {} called, a={} x={}",
+                    ctx.GetCommand(), ctx.CanReadBuffer(0) ? ctx.GetReadBufferSize(0) : 0,
+                    ctx.BufferDescriptorX().size());
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+};
+
 class PlayReport final : public ServiceFramework<PlayReport> {
 public:
     explicit PlayReport(const char* name, Core::System& system_) : ServiceFramework{system_, name} {
@@ -124,13 +155,15 @@ private:
     }
 
     // Newer firmware play-report command (seen in The Legend of Zelda: Ocarina of Time on
-    // Switch 2). Its layout is unknown; play reports are telemetry, so accept and drop it.
+    // Switch 2). The title sends a request to an object right after it, so it returns one.
     void Unknown10500(HLERequestContext& ctx) {
         const auto data_a = ctx.CanReadBuffer(0) ? ctx.GetReadBufferSize(0) : 0;
-        LOG_WARNING(Service_PREPO, "(STUBBED) called, buffer_size={}", data_a);
+        LOG_WARNING(Service_PREPO, "(STUBBED) called, buffer_size={}, returning a session",
+                    data_a);
 
-        IPC::ResponseBuilder rb{ctx, 2};
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(ResultSuccess);
+        rb.PushIpcInterface<IPlayReportSession>(ctx, system);
     }
 
     void GetSystemSessionId(HLERequestContext& ctx) {
