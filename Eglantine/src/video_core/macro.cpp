@@ -1444,6 +1444,10 @@ void MacroEngine::Execute(Core::System& system, Engines::Maxwell3D& maxwell3d, u
         }
         // A method write of the macro (also what a remembered call replays).
         bool read_memory = false;
+        // Zelda: Ocarina of Time (Switch 2) hangs in its first 3D scene right after the first
+        // fifoed DMA read of macro 0x142. Trace the writes that follow it (logged before and after
+        // each one) and the interpreter's result, to see whether a write blocks or the macro loops.
+        static u32 hang_trace_writes{};
         const auto emit = [&](u32 address, u32 value) {
                 ::Eden::MacroNative::EmitBench emit_bench{native_bench};
                 if (address >= 0xe00) return false;
@@ -1461,9 +1465,17 @@ void MacroEngine::Execute(Core::System& system, Engines::Maxwell3D& maxwell3d, u
                                  modes[0], modes[1], modes[2], modes[3]);
                     }
                 }
+                const bool traced = hang_trace_writes > 0;
+                if (traced) {
+                    --hang_trace_writes;
+                    LOG_WARNING(HW_GPU, "MME trace start={:#x} write {:#x} = {:#x} ...", method, address, value);
+                }
                 {
                     VideoCommon::Nx2Profile::Scope method_scope{VideoCommon::Nx2Profile::Zone::Method};
                     maxwell3d.MacroWrite(system, address, value);
+                }
+                if (traced) {
+                    LOG_WARNING(HW_GPU, "MME trace start={:#x} write {:#x} done", method, address);
                 }
                 // Turing MME memory reads (methods 0x550 SET_MME_MEM_ADDRESS_A/B, 0x558 data RAM
                 // address, 0x55c MME_DMA_READ into data RAM, 0x560 MME_DMA_READ_FIFOED into
@@ -1522,6 +1534,7 @@ void MacroEngine::Execute(Core::System& system, Engines::Maxwell3D& maxwell3d, u
                     }
                     static u32 dma_logs{};
                     if (dma_logs < 400) {
+                        if (dma_logs == 0) hang_trace_writes = 64;
                         ++dma_logs;
                         std::array<u32, 8> words{};
                         for (u32 i = 0; i < std::min<u32>(value, 8); ++i) words[i] = memory.Read<u32>(source + u64{i} * 4);
@@ -1625,6 +1638,14 @@ void MacroEngine::Execute(Core::System& system, Engines::Maxwell3D& maxwell3d, u
             !native_interpreter.reread_data_ram && code_generation == native_code_generation) {
             native_memo.Store(method, parameters, native_interpreter.data_ram_reads,
                               native_interpreter.data_ram_writes, native_writes);
+        }
+        if (hang_trace_writes > 0 || (hang_trace_writes == 0 && read_memory)) {
+            static u32 result_logs{};
+            if (result_logs < 64) {
+                ++result_logs;
+                LOG_WARNING(HW_GPU, "MME trace start={:#x} returned success={} pc={:#x} consumed={}/{}",
+                            method, result.success, result.pc, result.consumed, parameters.size());
+            }
         }
         if (!result.success) {
             native_execution_failed = true;
