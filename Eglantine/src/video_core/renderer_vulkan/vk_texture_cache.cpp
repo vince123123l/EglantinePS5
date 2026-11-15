@@ -2901,6 +2901,10 @@ bool TextureCacheRuntime::CanReportMemoryUsage() const {
 
 void TextureCacheRuntime::LogMemoryStatistics() const {
     Vulkan::LogMemoryStatistics(device);
+    LOG_INFO(Render_Vulkan, "Staging buffers kept: device-local {} MiB, upload {} MiB, download {} MiB",
+             staging_buffer_pool.CachedBytes(MemoryUsage::DeviceLocal) >> 20,
+             staging_buffer_pool.CachedBytes(MemoryUsage::Upload) >> 20,
+             staging_buffer_pool.CachedBytes(MemoryUsage::Download) >> 20);
 }
 
 void TextureCacheRuntime::LogMemoryTrace() {
