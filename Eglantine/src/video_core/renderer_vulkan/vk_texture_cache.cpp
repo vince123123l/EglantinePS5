@@ -3001,6 +3001,11 @@ void TextureCacheRuntime::TickFrame() {
     std::erase_if(free_transcodes, [](PendingTranscode& t) {
         return ++t.unused_frames > MAX_UNUSED_SCRATCH_FRAMES;
     });
+    // While the console's pool is short, finished decode images are not kept for the next texture
+    // of their shape (up to 256 MiB of them): they go, and a later texture makes its own.
+    if (::Eden::Performance::GraphicsMemoryIsShort()) {
+        free_transcodes.clear();
+    }
     std::erase_if(msaa_scratch_images, [this](MsaaScratchImage& scratch) {
         if (!scheduler.IsFree(scratch.tick)) {
             scratch.unused_frames = 0;
