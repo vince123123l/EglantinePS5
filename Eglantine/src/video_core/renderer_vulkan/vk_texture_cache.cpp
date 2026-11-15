@@ -4953,7 +4953,10 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     u32 height = (std::numeric_limits<u32>::max)();
     for (size_t index = 0; index < NUM_RT; ++index) {
         const ImageView* const color_buffer = color_buffers[index];
-        if (!color_buffer) {
+        // A target whose image got no memory (the pool ran out) has no view: left out, as an
+        // unbound target, rather than a null attachment the driver dereferences.
+        if (!color_buffer || color_buffer->RenderTarget() == VK_NULL_HANDLE ||
+            color_buffer->ImageHandle() == VK_NULL_HANDLE) {
             renderpass_key.color_formats[index] = PixelFormat::Invalid;
             continue;
         }
@@ -4973,6 +4976,10 @@ void Framebuffer::CreateFramebuffer(TextureCacheRuntime& runtime,
     const size_t num_colors = attachments.size();
     VkImage depth_image = VK_NULL_HANDLE;
     VkImageAspectFlags depth_aspect_mask = 0;
+    if (depth_buffer && (depth_buffer->RenderTarget() == VK_NULL_HANDLE ||
+                         depth_buffer->ImageHandle() == VK_NULL_HANDLE)) {
+        depth_buffer = nullptr; // no memory for its image: drawn without depth
+    }
     if (depth_buffer) {
         width = (std::min)(width, is_rescaled ? resolution.ScaleUp(depth_buffer->size.width)
                                             : depth_buffer->size.width);
